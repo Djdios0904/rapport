@@ -11,7 +11,7 @@ def clean_antal(val):
 
 def clean_numeric(val):
     if pd.isna(val): return 0.0
-    # Fjerner ' kr.', tusindtals-punktum og ændrer decimal-komma til punktum
+    # Rens for ' kr.', fjern tusindtals-punktum, og skift decimal-komma til punktum
     s = str(val).replace(' kr.', '').replace('.', '').replace(',', '.')
     try: return float(s)
     except: return 0.0
@@ -19,7 +19,7 @@ def clean_numeric(val):
 # App layout
 st.set_page_config(page_title="Behandler Statistik", layout="wide")
 st.title("📊 Behandler Produktions-Opgørelse")
-st.write("Alle tal er nu afrundet til nærmeste hele tal for at undgå decimal-fejl.")
+st.write("Tal er afrundet til hele tal med ',' som tusindtalsseparator.")
 
 uploaded_file = st.file_uploader("Vælg CSV-fil", type="csv")
 
@@ -59,10 +59,8 @@ if uploaded_file is not None:
         chok_kr = chok_rows['Beløb_clean'].sum()
         
         total_omsætning = group['Ialt_clean'].sum()
-        
         pva = (nye / behandlinger * 100) if behandlinger != 0 else 0
         
-        # Returnerer afrundede værdier
         return pd.Series({
             'Behandlinger': round(behandlinger),
             'Nye': round(nye),
@@ -81,11 +79,10 @@ if uploaded_file is not None:
     result = df.groupby('Behandler').apply(calculate_stats).reset_index()
 
     # Beregn TOTAL-rækken
-    # Vi dropper Behandler før sum, og tilføjer den igen bagefter
     numeric_only = result.drop(columns='Behandler')
     total_row_values = numeric_only.sum()
     
-    # Genberegn PVA for totalen korrekt (før afrunding af totalen)
+    # Genberegn PVA for totalen korrekt før afrunding
     if total_row_values['Behandlinger'] != 0:
         total_pva = (total_row_values['Nye'] / total_row_values['Behandlinger'] * 100)
     else:
@@ -95,22 +92,26 @@ if uploaded_file is not None:
     total_row['Behandler'] = 'TOTAL'
     total_row['PVA (%)'] = round(total_pva)
     
-    # Tilføj rækken til resultatet
+    # Saml resultatet
     result = pd.concat([result, pd.DataFrame([total_row])], ignore_index=True)
 
-    # Liste over alle talkolonner til formatering
+    # Tving alle talkolonner til at være faktiske taltyper (vigtigt for formatering)
     num_cols = result.columns.drop('Behandler')
+    for col in num_cols:
+        result[col] = pd.to_numeric(result[col])
 
-    # Vis tabellen uden decimaler ("%,.0f" betyder tusindtal-komma og 0 decimaler)
+    # Vis tabellen
+    # Vi bruger format="{:,d}" eller bare "d" for heltal. 
+    # Streamlit NumberColumn bruger d3-format, så ",d" er tusindtal med komma for heltal.
     st.subheader("Opgørelse pr. behandler")
     st.dataframe(
         result,
         use_container_width=True,
         column_config={
-            col: st.column_config.NumberColumn(format="%,.0f") for col in num_cols
+            col: st.column_config.NumberColumn(format=",d") for col in num_cols
         }
     )
 
-    # Download link - vi gemmer som heltal i CSV for at undgå ,/. problemer
+    # Download
     csv = result.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
-    st.download_button("Download resultat som CSV", csv, "behandler_statistik_rundet.csv", "text/csv")
+    st.download_button("Download resultat som CSV", csv, "behandler_statistik.csv", "text/csv")
