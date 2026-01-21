@@ -19,7 +19,7 @@ def clean_numeric(val):
 # App layout
 st.set_page_config(page_title="Behandler Statistik", layout="wide")
 st.title("📊 Behandler Produktions-Opgørelse")
-st.write("Oversigt med Total Omsætning og samlet sum for alle behandlere.")
+st.write("Alle tal er nu afrundet til nærmeste hele tal for at undgå decimal-fejl.")
 
 uploaded_file = st.file_uploader("Vælg CSV-fil", type="csv")
 
@@ -62,30 +62,38 @@ if uploaded_file is not None:
         
         pva = (nye / behandlinger * 100) if behandlinger != 0 else 0
         
+        # Returnerer afrundede værdier
         return pd.Series({
-            'Behandlinger': behandlinger,
-            'Nye': nye,
-            '1017 samlet': sum_1017,
-            'Røntgen': roentgen,
-            'Ultralyd': ultralyd,
-            'Billeddiagnostik': billeddiagnostik,
-            'Akupunktur': akupunktur,
-            'Chokbølge (Antal)': chok_antal,
-            'Chokbølge (kr.)': chok_kr,
-            'Total Omsætning': total_omsætning,
-            'PVA (%)': round(pva, 2)
+            'Behandlinger': round(behandlinger),
+            'Nye': round(nye),
+            '1017 samlet': round(sum_1017),
+            'Røntgen': round(roentgen),
+            'Ultralyd': round(ultralyd),
+            'Billeddiagnostik': round(billeddiagnostik),
+            'Akupunktur': round(akupunktur),
+            'Chokbølge (Antal)': round(chok_antal),
+            'Chokbølge (kr.)': round(chok_kr),
+            'Total Omsætning': round(total_omsætning),
+            'PVA (%)': round(pva)
         })
 
     # Beregn for hver behandler
     result = df.groupby('Behandler').apply(calculate_stats).reset_index()
 
     # Beregn TOTAL-rækken
-    total_row = result.drop(columns='Behandler').sum()
-    total_row['Behandler'] = 'TOTAL'
+    # Vi dropper Behandler før sum, og tilføjer den igen bagefter
+    numeric_only = result.drop(columns='Behandler')
+    total_row_values = numeric_only.sum()
     
-    # Genberegn PVA for totalen (så det ikke bare er en sum af procenter)
-    total_pva = (total_row['Nye'] / total_row['Behandlinger'] * 100) if total_row['Behandlinger'] != 0 else 0
-    total_row['PVA (%)'] = round(total_pva, 2)
+    # Genberegn PVA for totalen korrekt (før afrunding af totalen)
+    if total_row_values['Behandlinger'] != 0:
+        total_pva = (total_row_values['Nye'] / total_row_values['Behandlinger'] * 100)
+    else:
+        total_pva = 0
+        
+    total_row = total_row_values.to_dict()
+    total_row['Behandler'] = 'TOTAL'
+    total_row['PVA (%)'] = round(total_pva)
     
     # Tilføj rækken til resultatet
     result = pd.concat([result, pd.DataFrame([total_row])], ignore_index=True)
@@ -93,16 +101,16 @@ if uploaded_file is not None:
     # Liste over alle talkolonner til formatering
     num_cols = result.columns.drop('Behandler')
 
-    # Vis tabellen
+    # Vis tabellen uden decimaler ("%,.0f" betyder tusindtal-komma og 0 decimaler)
     st.subheader("Opgørelse pr. behandler")
     st.dataframe(
         result,
         use_container_width=True,
         column_config={
-            col: st.column_config.NumberColumn(format="%,.2f") for col in num_cols
+            col: st.column_config.NumberColumn(format="%,.0f") for col in num_cols
         }
     )
 
-    # Download link
+    # Download link - vi gemmer som heltal i CSV for at undgå ,/. problemer
     csv = result.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
-    st.download_button("Download resultat som CSV", csv, "behandler_statistik_total.csv", "text/csv")
+    st.download_button("Download resultat som CSV", csv, "behandler_statistik_rundet.csv", "text/csv")
