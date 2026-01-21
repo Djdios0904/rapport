@@ -59,7 +59,7 @@ if uploaded_file is not None:
         chok_kr = chok_rows['Beløb_clean'].sum()
         
         total_omsætning = group['Ialt_clean'].sum()
-        pva = (nye / behandlinger * 100) if behandlinger != 0 else 0
+        pva = (behandlinger / nye) if behandlinger != 0 else 0
         
         return pd.Series({
             'Behandlinger': int(round(behandlinger)),
