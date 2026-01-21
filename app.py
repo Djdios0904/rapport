@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import io
 
 # Hjælpefunktioner til datarensning
 def clean_antal(val):
@@ -10,9 +9,9 @@ def clean_antal(val):
     try: return float(s)
     except: return 0.0
 
-def clean_beloeb(val):
+def clean_numeric(val):
     if pd.isna(val): return 0.0
-    # Fjerner ' kr.', tusindtalsseparator (.) og ændrer komma til punktum
+    # Fjerner ' kr.', tusindtals-punktum og ændrer decimal-komma til punktum
     s = str(val).replace(' kr.', '').replace('.', '').replace(',', '.')
     try: return float(s)
     except: return 0.0
@@ -20,12 +19,11 @@ def clean_beloeb(val):
 # App layout
 st.set_page_config(page_title="Behandler Statistik", layout="wide")
 st.title("📊 Behandler Produktions-Opgørelse")
-st.write("Upload din CSV-fil for at få beregnet statistikken med de nye 1017 og Chokbølge-antal.")
+st.write("Oversigt med Total Omsætning og samlet sum for alle behandlere.")
 
 uploaded_file = st.file_uploader("Vælg CSV-fil", type="csv")
 
 if uploaded_file is not None:
-    # Læs filen (prøver UTF-8, ellers Latin-1 som ofte bruges i DK exports)
     try:
         df = pd.read_csv(uploaded_file, sep=';', encoding='utf-8')
     except:
@@ -34,10 +32,11 @@ if uploaded_file is not None:
     
     # Rens data
     df['Antal_clean'] = df['Antal'].apply(clean_antal)
-    df['Beløb_clean'] = df['Beløb'].apply(clean_beloeb)
+    df['Beløb_clean'] = df['Beløb'].apply(clean_numeric)
+    df['Ialt_clean'] = df['Ialt'].apply(clean_numeric)
     df['Kode'] = df['Kode'].astype(str).str.strip()
 
-    # Definitioner af kodelister
+    # Kodelister
     codes_behandlinger = ['1035', '10350', '1036g', '1036', '1036p', '1037', '1042', '1043', '1044', '1045', '1052', '1053', '1054', '1055', '1062', '1063', '1065']
     codes_nye = ['1015', '10150', '1016', '1040', '1041', '1050', '1051', '1060', '1061']
     codes_1017 = ['1017', '1017p', '1017g', '10170']
@@ -50,19 +49,18 @@ if uploaded_file is not None:
         behandlinger = group[group['Kode'].isin(codes_behandlinger)]['Antal_clean'].sum()
         nye = group[group['Kode'].isin(codes_nye)]['Antal_clean'].sum()
         sum_1017 = group[group['Kode'].isin(codes_1017)]['Antal_clean'].sum()
-        
         roentgen = group[group['Kode'].isin(codes_roentgen)]['Antal_clean'].sum()
         ultralyd = group[group['Kode'].isin(codes_ultralyd)]['Antal_clean'].sum()
         billeddiagnostik = roentgen + ultralyd
-        
         akupunktur = group[group['Kode'].str.lower().isin(codes_aku)]['Antal_clean'].sum()
         
-        # Chokbølge - både antal og beløb
         chok_rows = group[group['Kode'].isin(codes_chokboelge)]
         chok_antal = chok_rows['Antal_clean'].sum()
         chok_kr = chok_rows['Beløb_clean'].sum()
         
-        pva = ( behandlinger / nye) if behandlinger != 0 else 0
+        total_omsætning = group['Ialt_clean'].sum()
+        
+        pva = (nye / behandlinger * 100) if behandlinger != 0 else 0
         
         return pd.Series({
             'Behandlinger': behandlinger,
@@ -74,21 +72,37 @@ if uploaded_file is not None:
             'Akupunktur': akupunktur,
             'Chokbølge (Antal)': chok_antal,
             'Chokbølge (kr.)': chok_kr,
+            'Total Omsætning': total_omsætning,
             'PVA (%)': round(pva, 2)
         })
 
-    # Lav beregningen
+    # Beregn for hver behandler
     result = df.groupby('Behandler').apply(calculate_stats).reset_index()
+
+    # Beregn TOTAL-rækken
+    total_row = result.drop(columns='Behandler').sum()
+    total_row['Behandler'] = 'TOTAL'
+    
+    # Genberegn PVA for totalen (så det ikke bare er en sum af procenter)
+    total_pva = (total_row['Nye'] / total_row['Behandlinger'] * 100) if total_row['Behandlinger'] != 0 else 0
+    total_row['PVA (%)'] = round(total_pva, 2)
+    
+    # Tilføj rækken til resultatet
+    result = pd.concat([result, pd.DataFrame([total_row])], ignore_index=True)
+
+    # Liste over alle talkolonner til formatering
+    num_cols = result.columns.drop('Behandler')
 
     # Vis tabellen
     st.subheader("Opgørelse pr. behandler")
-    st.dataframe(result, use_container_width=True)
+    st.dataframe(
+        result,
+        use_container_width=True,
+        column_config={
+            col: st.column_config.NumberColumn(format="%,.2f") for col in num_cols
+        }
+    )
 
     # Download link
     csv = result.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
-    st.download_button(
-        label="Download resultat som CSV",
-        data=csv,
-        file_name="behandler_statistik_opdateret.csv",
-        mime="text/csv",
-    )
+    st.download_button("Download resultat som CSV", csv, "behandler_statistik_total.csv", "text/csv")
