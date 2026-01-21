@@ -11,7 +11,7 @@ def clean_antal(val):
 
 def clean_numeric(val):
     if pd.isna(val): return 0.0
-    # Fjerner ' kr.', tusindtals-punktum og ændrer decimal-komma til punktum
+    # Rens for ' kr.', fjern tusindtals-punktum, og skift decimal-komma til punktum
     s = str(val).replace(' kr.', '').replace('.', '').replace(',', '.')
     try: return float(s)
     except: return 0.0
@@ -19,7 +19,7 @@ def clean_numeric(val):
 # App layout
 st.set_page_config(page_title="Behandler Statistik", layout="wide")
 st.title("📊 Behandler Produktions-Opgørelse")
-st.write("Alle tal er nu afrundet til nærmeste hele tal for at undgå decimal-fejl.")
+st.write("Tal er afrundet til hele tal. Komma bruges som tusindtals-separator.")
 
 uploaded_file = st.file_uploader("Vælg CSV-fil", type="csv")
 
@@ -59,58 +59,53 @@ if uploaded_file is not None:
         chok_kr = chok_rows['Beløb_clean'].sum()
         
         total_omsætning = group['Ialt_clean'].sum()
-        
         pva = (nye / behandlinger * 100) if behandlinger != 0 else 0
         
-        # Returnerer afrundede værdier
         return pd.Series({
-            'Behandlinger': round(behandlinger),
-            'Nye': round(nye),
-            '1017 samlet': round(sum_1017),
-            'Røntgen': round(roentgen),
-            'Ultralyd': round(ultralyd),
-            'Billeddiagnostik': round(billeddiagnostik),
-            'Akupunktur': round(akupunktur),
-            'Chokbølge (Antal)': round(chok_antal),
-            'Chokbølge (kr.)': round(chok_kr),
-            'Total Omsætning': round(total_omsætning),
-            'PVA (%)': round(pva)
+            'Behandlinger': int(round(behandlinger)),
+            'Nye': int(round(nye)),
+            '1017 samlet': int(round(sum_1017)),
+            'Røntgen': int(round(roentgen)),
+            'Ultralyd': int(round(ultralyd)),
+            'Billeddiagnostik': int(round(billeddiagnostik)),
+            'Akupunktur': int(round(akupunktur)),
+            'Chokbølge (Antal)': int(round(chok_antal)),
+            'Chokbølge (kr.)': int(round(chok_kr)),
+            'Total Omsætning': int(round(total_omsætning)),
+            'PVA (%)': int(round(pva))
         })
 
-    # Beregn for hver behandler
+    # Beregn per behandler
     result = df.groupby('Behandler').apply(calculate_stats).reset_index()
 
-    # Beregn TOTAL-rækken
-    # Vi dropper Behandler før sum, og tilføjer den igen bagefter
-    numeric_only = result.drop(columns='Behandler')
-    total_row_values = numeric_only.sum()
+    # Beregn TOTAL-række
+    numeric_cols = result.select_dtypes(include=['number']).columns
+    total_values = result[numeric_cols].sum()
     
-    # Genberegn PVA for totalen korrekt (før afrunding af totalen)
-    if total_row_values['Behandlinger'] != 0:
-        total_pva = (total_row_values['Nye'] / total_row_values['Behandlinger'] * 100)
+    # Korrekt PVA for totalen
+    if total_values['Behandlinger'] != 0:
+        total_pva = int(round((total_values['Nye'] / total_values['Behandlinger']) * 100))
     else:
         total_pva = 0
-        
-    total_row = total_row_values.to_dict()
-    total_row['Behandler'] = 'TOTAL'
-    total_row['PVA (%)'] = round(total_pva)
     
-    # Tilføj rækken til resultatet
+    total_row = total_values.to_dict()
+    total_row['Behandler'] = 'TOTAL'
+    total_row['PVA (%)'] = total_pva
+    
     result = pd.concat([result, pd.DataFrame([total_row])], ignore_index=True)
 
-    # Liste over alle talkolonner til formatering
-    num_cols = result.columns.drop('Behandler')
-
-    # Vis tabellen uden decimaler ("%,.0f" betyder tusindtal-komma og 0 decimaler)
+    # Visning i Streamlit - vi fjerner de avancerede formateringer og bruger standard
     st.subheader("Opgørelse pr. behandler")
+    
+    # Vi bruger en meget simpel formatering her:
     st.dataframe(
         result,
         use_container_width=True,
         column_config={
-            col: st.column_config.NumberColumn(format="%,.0f") for col in num_cols
+            col: st.column_config.NumberColumn(step=1, format="%d") for col in numeric_cols
         }
     )
 
-    # Download link - vi gemmer som heltal i CSV for at undgå ,/. problemer
+    # Download
     csv = result.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
-    st.download_button("Download resultat som CSV", csv, "behandler_statistik_rundet.csv", "text/csv")
+    st.download_button("Download resultat som CSV", csv, "behandler_statistik.csv", "text/csv")
