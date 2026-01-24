@@ -71,8 +71,9 @@ if uploaded_file is not None:
             'Akupunktur': int(round(akupunktur)),
             'Chokbølge (Antal)': int(round(chok_antal)),
             'Chokbølge (kr.)': int(round(chok_kr)),
-            'Total Omsætning': int(round(total_omsætning)),
-            'PVA (%)': int(round(pva))
+            'PVA (%)': int(round(pva)),
+            'Total Omsætning': int(round(total_omsætning))
+            
         })
 
     # Beregn per behandler
